@@ -1,0 +1,862 @@
+#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+#include <GL/glut.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include <stdarg.h>
+ 
+#define WINDOW_WIDTH  1400
+#define WINDOW_HEIGHT 700
+ 
+#define TIMER_PERIOD  72 // Period for the timer.
+#define TIMER_ON       1 // 0:disable timer, 1:enable timer
+ 
+#define D2R 0.0174532
+ 
+float A = 100,//amplitude
+fq = 1,  //frequency
+C = 0,   //horizontal phase shift
+B = 0;   //vertical phase shift
+ 
+float angle = 0;
+ 
+bool starRotate = false;
+bool spacebar = false;
+bool motion = true;
+ 
+typedef struct {
+    float x, y;
+} pos_t;
+ 
+typedef struct {
+    double x, y;
+} posD_t;
+ 
+typedef struct {
+    pos_t pos; //position
+    float ang; //view angle
+    float radius; //radius of main body
+} player_t;
+ 
+typedef struct {
+    pos_t pos;
+    float ang;
+    bool active; //initially false
+}fire_t;
+ 
+typedef struct {
+    posD_t pos;
+    double angle;
+    unsigned char r, g, b;
+    double radius;
+}star_t;
+ 
+typedef struct {
+    pos_t center;
+    //color_t color;
+    float radius;
+    float speed;
+    bool active;
+} target_t;
+ 
+#define MAX 20 //maximum number of stars
+ 
+target_t baloon = { { -300,300 },50,20,true };
+target_t baloon2 = { { -300,300 },35,20,true };
+target_t baloon3 = { { -300,300 },50,20,true };
+ 
+target_t newsun = { {0,0},20,20,true };
+player_t player = { {-690,0},45,20 };
+fire_t fire = { {0,0},0,false };
+ 
+pos_t fallingStar;
+ 
+star_t stars[MAX];
+int count = 0; // number of star
+ 
+/* Global Variables for Template File */
+bool up = false, down = false, right = false, left = false;
+int  winWidth, winHeight; // current Window width and height
+ 
+//
+// to draw circle, center at (x,y)
+// radius r
+//
+void circle(int x, int y, int r)
+{
+#define PI 3.1415
+    float angle;
+    glBegin(GL_POLYGON);
+    for (int i = 0; i < 100; i++)
+    {
+        angle = 2 * PI * i / 100;
+        glVertex2f(x + r * cos(angle), y + r * sin(angle));
+    }
+    glEnd();
+}
+ 
+void circle_wire(int x, int y, int r)
+{
+#define PI 3.1415
+    float angle;
+ 
+    glBegin(GL_LINE_LOOP);
+    for (int i = 0; i < 100; i++)
+    {
+        angle = 2 * PI * i / 100;
+        glVertex2f(x + r * cos(angle), y + r * sin(angle));
+    }
+    glEnd();
+}
+ 
+void print(int x, int y, const char* string, void* font)
+{
+    int len, i;
+ 
+    glRasterPos2f(x, y);
+    len = (int)strlen(string);
+    for (i = 0; i < len; i++)
+    {
+        glutBitmapCharacter(font, string[i]);
+    }
+}
+ 
+// display text with variables.
+// vprint(-winWidth / 2 + 10, winHeight / 2 - 20, GLUT_BITMAP_8_BY_13, "ERROR: %d", numClicks);
+void vprint(int x, int y, void* font, const char* string, ...)
+{
+    va_list ap;
+    va_start(ap, string);
+    char str[1024];
+    vsprintf_s(str, string, ap);
+    va_end(ap);
+ 
+    int len, i;
+    glRasterPos2f(x, y);
+    len = (int)strlen(str);
+    for (i = 0; i < len; i++)
+    {
+        glutBitmapCharacter(font, str[i]);
+    }
+}
+ 
+// vprint2(-50, 0, 0.35, "00:%02d", timeCounter);
+void vprint2(int x, int y, float size, const char* string, ...) {
+    va_list ap;
+    va_start(ap, string);
+    char str[1024];
+    vsprintf_s(str, string, ap);
+    va_end(ap);
+    glPushMatrix();
+    glTranslatef(x, y, 0);
+    glScalef(size, size, 1);
+ 
+    int len, i;
+    len = (int)strlen(str);
+    for (i = 0; i < len; i++)
+    {
+        glutStrokeCharacter(GLUT_STROKE_ROMAN, str[i]);
+    }
+    glPopMatrix();
+}
+ 
+void drawGradient(int x1, int y1, int w, int h, float r, float g, float b) {
+    glBegin(GL_QUADS);
+    glColor3f(r, g, b);
+    glVertex2f(x1, y1);
+    glVertex2f(x1 + w, y1);
+    glColor3f(r + 0.4, g + 0.4, b + 0.4);
+    glVertex2f(x1 + w, y1 - h);
+    glVertex2f(x1, y1 - h);
+    glEnd();
+    glColor3f(0.1, 0.1, 0.1);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(x1, y1);
+    glVertex2f(x1 + w, y1);
+    glVertex2f(x1 + w, y1 - h);
+    glVertex2f(x1, y1 - h);
+    glEnd();
+}
+ 
+void drawCloud(int x, int y) {
+ 
+    glColor3f(1, 1, 1);
+    glRectf(-350, 180, 350, 200);
+    circle(0 + x, 0 + y, 20);
+    circle(40 + x, 10 + y, 30);
+    circle(95 + x, 20 + y, 35);
+    circle(150 + x, 10 + y, 30);
+    circle(190 + x, 5 + y, 20);
+    circle(235 + x, 20 + y, 35);
+    circle(290 + x, 10 + y, 30);
+    circle(335 + x, 10 + y, 20);
+    circle(-20 + x, -5 + y, 15);
+    circle(-55 + x, -5 + y, 15);
+    circle(-85 + x, 5 + y, 20);
+    circle(-100 + x, -5 + y, 15);
+    circle(-125 + x, 0 + y, 20);
+    circle(-170 + x, 10 + y, 30);
+    circle(-210 + x, 5 + y, 20);
+    circle(-250 + x, 15 + y, 30);
+    circle(-310 + x, 20 + y, 40);
+    circle(355 + x, 0 + y, 20);
+    circle(-350 + x, 0 + y, 20);
+ 
+}
+ 
+void vertex(posD_t P, posD_t Tr, double angle) {
+    double xp = (P.x * cos(angle) - P.y * sin(angle)) + Tr.x;
+    double yp = (P.x * sin(angle) + P.y * cos(angle)) + Tr.y;
+    glVertex2d(xp, yp);
+}
+ 
+void drawStar(star_t star)
+{
+    glBegin(GL_TRIANGLES);
+    glColor3f(star.r, star.g, star.b);
+    vertex({ 0, 20 }, star.pos, star.angle);
+    vertex({ -17.3, -10 }, star.pos, star.angle);
+    glColor3f(star.r, star.g, star.b);
+    vertex({ 17.3, -10 }, star.pos, star.angle);
+    glEnd();
+    glBegin(GL_TRIANGLES);
+    vertex({ 0, -20 }, star.pos, star.angle);
+    vertex({ -17.3, 10 }, star.pos, star.angle);
+    glColor3f(star.r, star.g, star.b);
+    vertex({ 17.3, 10 }, star.pos, star.angle);
+    glEnd();
+}
+ 
+void drawAllStars() {
+    for (int i = 0; i < count; i++) {
+        drawStar(stars[i]);
+    }
+}
+ 
+float f(float x) {
+    return A * sin((fq * x + C) * D2R) + B;
+}
+ 
+void drawSun()
+{
+    int r = 15;
+ 
+    newsun.center.x = fabs(A) * cos(angle * D2R) + 200;
+    newsun.center.y = fabs(A) * sin(angle * D2R) + 225;
+ 
+    glBegin(GL_TRIANGLES);
+    glColor3f(1, 1, 0);
+    glVertex2f(newsun.center.x + (r + r / 2), newsun.center.y + r / 2);
+    glColor3ub(255, 140, 0);
+    glVertex2f(newsun.center.x - (r + r / 2), newsun.center.y + r / 2);
+    glColor3f(1, 1, 0);
+    glVertex2f(newsun.center.x, newsun.center.y - (r + r / 2));
+    glEnd();
+ 
+    glBegin(GL_TRIANGLES);
+    glColor3f(1, 1, 0);
+    glVertex2f(newsun.center.x - (r + r / 2), newsun.center.y - r / 2);
+    glColor3ub(255, 140, 0);
+    glVertex2f(newsun.center.x + (r + r / 2), newsun.center.y - r / 2);
+    glColor3f(1, 1, 0);
+    glVertex2f(newsun.center.x, newsun.center.y + (r + r / 2));
+    glEnd();
+    glColor3ub(255, 140, 0);
+    circle(newsun.center.x, newsun.center.y, r);
+ 
+    glColor3f(1, 1, 0);
+    circle_wire(newsun.center.x, newsun.center.y, r + r / 1.2);
+ 
+}
+ 
+void drawBaloon()
+{
+ 
+    glColor3f(1, 0, 0);
+    circle(baloon.center.x, baloon.center.y, baloon.radius);
+ 
+    glBegin(GL_QUADS);
+    glColor3f(1, 0, 0);
+    glVertex2f(baloon.center.x - 50, baloon.center.y);
+    glColor3f(1, 0, 0);
+    glVertex2f(baloon.center.x + 50, baloon.center.y);
+    glColor3f(1, 1, 0);
+    glVertex2f(baloon.center.x + 21, baloon.center.y - 65);
+    glColor3f(1, 1, 0);
+    glVertex2f(baloon.center.x - 21, baloon.center.y - 65);
+    glEnd();
+ 
+    glBegin(GL_LINES);
+    glLineWidth(3);
+    glVertex2f(baloon.center.x - 21, baloon.center.y - 65);
+    glVertex2f(baloon.center.x - 15, baloon.center.y - 105);
+    glVertex2f(baloon.center.x + 21, baloon.center.y - 65);
+    glVertex2f(baloon.center.x + 15, baloon.center.y - 105);
+    glVertex2f(baloon.center.x, baloon.center.y - 65);
+    glVertex2f(baloon.center.x, baloon.center.y - 105);
+    glEnd();
+ 
+    glColor3f(0.6, 0.4, 0.12);
+    glBegin(GL_QUADS);
+    glVertex2f(baloon.center.x - 15, baloon.center.y - 105);
+    glVertex2f(baloon.center.x + 15, baloon.center.y - 105);
+    glVertex2f(baloon.center.x + 20, baloon.center.y - 140);
+    glVertex2f(baloon.center.x - 20, baloon.center.y - 140);
+    glEnd();
+ 
+    glLineWidth(1);
+}
+void drawBaloon2()
+{
+ 
+    glColor3f(1, 0, 1);
+    circle(baloon2.center.x, baloon2.center.y, baloon2.radius);
+   
+    glBegin(GL_QUADS);
+    glColor3f(1, 0, 1);
+    glVertex2f(baloon2.center.x - 35, baloon2.center.y);
+    glColor3f(1, 0, 1);
+    glVertex2f(baloon2.center.x + 35, baloon2.center.y);
+    glColor3f(1, 1, 0);
+    glVertex2f(baloon2.center.x + 15, baloon2.center.y - 45);
+    glColor3f(1, 1, 0);
+    glVertex2f(baloon2.center.x - 15, baloon2.center.y - 45);
+    glEnd();
+ 
+    glBegin(GL_LINES);
+    glLineWidth(3);
+    glVertex2f(baloon2.center.x - 15, baloon2.center.y - 45);
+    glVertex2f(baloon2.center.x - 10, baloon2.center.y - 75);
+    glVertex2f(baloon2.center.x + 15, baloon2.center.y - 45);
+    glVertex2f(baloon2.center.x + 10, baloon2.center.y - 75);
+    glVertex2f(baloon2.center.x, baloon2.center.y - 45);
+    glVertex2f(baloon2.center.x, baloon2.center.y - 75);
+    glEnd();
+ 
+    glColor3f(0.6, 0.4, 0.12);
+    glBegin(GL_QUADS);
+    glVertex2f(baloon2.center.x - 10, baloon2.center.y - 75);
+    glVertex2f(baloon2.center.x + 10, baloon2.center.y - 75);
+    glVertex2f(baloon2.center.x + 13, baloon2.center.y - 100);
+    glVertex2f(baloon2.center.x - 13, baloon2.center.y - 100);
+    glEnd();
+ 
+    glLineWidth(1);
+}
+ 
+void drawBaloon3()
+{
+ 
+    glColor3f(0, 1, 1);
+    circle(baloon3.center.x, baloon3.center.y, baloon3.radius);
+   
+    glBegin(GL_QUADS);
+    glColor3f(0, 1, 1);
+    glVertex2f(baloon3.center.x - 50, baloon3.center.y);
+    glColor3f(0, 1, 1);
+    glVertex2f(baloon3.center.x + 50, baloon3.center.y);
+    glColor3f(1, 1, 0);
+    glVertex2f(baloon3.center.x + 21, baloon3.center.y - 65);
+    glColor3f(1, 1, 0);
+    glVertex2f(baloon3.center.x - 21, baloon3.center.y - 65);
+    glEnd();
+ 
+    glBegin(GL_LINES);
+    glLineWidth(3);
+    glVertex2f(baloon3.center.x - 21, baloon3.center.y - 65);
+    glVertex2f(baloon3.center.x - 15, baloon3.center.y - 105);
+    glVertex2f(baloon3.center.x + 21, baloon3.center.y - 65);
+    glVertex2f(baloon3.center.x + 15, baloon3.center.y - 105);
+    glVertex2f(baloon3.center.x, baloon3.center.y - 65);
+    glVertex2f(baloon3.center.x, baloon3.center.y - 105);
+    glEnd();
+ 
+    glColor3f(0.6, 0.4, 0.12);
+    glBegin(GL_QUADS);
+    glVertex2f(baloon3.center.x - 15, baloon3.center.y - 105);
+    glVertex2f(baloon3.center.x + 15, baloon3.center.y - 105);
+    glVertex2f(baloon3.center.x + 20, baloon3.center.y - 140);
+    glVertex2f(baloon3.center.x - 20, baloon3.center.y - 140);
+    glEnd();
+ 
+ 
+    glLineWidth(1);
+}
+ 
+void drawAngle()
+{
+    float r = fabs(A); //amplitude
+ 
+}
+ 
+void drawBackgroundNight()
+{
+    drawGradient(-700, 400, 1400, 800, 0, 0, 0.1);
+ 
+    drawCloud(0, 200);
+ 
+    drawGradient(-700, 73, 1400, 400, 0.8, 0.6, 0.4);
+    glColor3ub(255, 165, 0);
+    glBegin(GL_TRIANGLES);
+    glVertex2f(-700, 75);
+    glVertex2f(-700, -75);
+    glVertex2f(0, 75);
+    glEnd();
+ 
+    glBegin(GL_TRIANGLES);
+    glVertex2f(700, 75);
+    glVertex2f(700, -75);
+    glVertex2f(0, 75);
+    glEnd();
+ 
+    glBegin(GL_TRIANGLES);
+    glVertex2f(0, 75);
+    glColor3f(0.8, 0.6, 0.4);
+    glVertex2f(-81, 58);
+    glVertex2f(81, 58);
+    glEnd();
+ 
+ 
+    //falling stars
+    float c = 0.5 * sin(0.5 * angle * D2R) + 0.5;
+    glColor3f(0.4, 0, c * c);
+    circle(fallingStar.x, fallingStar.y, -4 * sin(3 * angle * D2R));
+    circle(fallingStar.x, fallingStar.y, -4 * sin(3 * angle * D2R));
+    glColor3f(0.8, 0.8, 0.8);
+    circle(fallingStar.x - 200, fallingStar.y + 100, -4 * sin(3 * angle * D2R));
+ 
+    // key information for Night
+    glColor3f(0, 0, 0);
+    glRectf(-700, -350, 700, -315);
+    glColor3f(1, 1, 0);
+    vprint(-300, -340, GLUT_BITMAP_9_BY_15,
+        "Press <SpaceBar> Fire   <F1> Pause / Restart   <F2> Rotate the stars");
+}
+ 
+void drawBackgroundMorning()
+{
+   
+    drawGradient(-700, 400, 1400, 800, 0.6, 1, 0.86);
+    drawCloud(0, 200);
+ 
+    drawGradient(-700, 73, 1400, 400, 0.8, 0.6, 0.4);
+    glColor3ub(255, 165, 0);
+    glBegin(GL_TRIANGLES);
+    glVertex2f(-700, 75);
+    glVertex2f(-700, -75);
+    glVertex2f(0, 75);
+    glEnd();
+ 
+    glBegin(GL_TRIANGLES);
+    glVertex2f(700, 75);
+    glVertex2f(700, -75);
+    glVertex2f(0, 75);
+    glEnd();
+ 
+    glBegin(GL_TRIANGLES);
+    glVertex2f(0, 75);
+    glColor3f(0.8, 0.6, 0.4);
+    glVertex2f(-81, 58);
+    glVertex2f(81, 58);
+    glEnd();
+ 
+    // key information for Day
+    glColor3f(0, 0, 0);
+    glRectf(-700, -350, 700, -315);
+    glColor3f(1,1, 0);
+    vprint(-200, -335, GLUT_BITMAP_9_BY_15,
+        "Press <SpaceBar> Fire      <F1> Pause / Restart");
+ 
+}
+ 
+ 
+void turnPlayer(player_t* p, float inc) {
+ 
+    p->ang += inc;
+    if (p->ang >= 360)
+        p->ang -= 360;
+    if (p->ang < 0)
+        p->ang += 360;
+}
+ 
+void movePlayer(player_t* p, float speed) {
+ 
+    float dy = speed * sin(p->ang * D2R);
+    p->pos.y += dy;
+    if (p->pos.y > 350 || p->pos.y < -350)
+        p->pos.y -= dy;
+ 
+}
+ 
+ 
+ 
+void drawPlayer(player_t p) {
+ 
+    glColor3f(1, 1, 0);
+ 
+    glLineWidth(3);
+    glBegin(GL_LINES);
+    glVertex2f(p.pos.x, p.pos.y);
+    glVertex2f(p.pos.x + 50 * cos(p.ang * D2R),
+        p.pos.y + 50 * sin(p.ang * D2R));
+    glEnd();
+    glLineWidth(1);
+ 
+    glColor3f(1, 1, 1);
+    circle(p.pos.x, p.pos.y, p.radius);
+    circle(p.pos.x + 35 * cos(p.ang * D2R),
+        p.pos.y + 35 * sin(p.ang * D2R), 15);
+    circle(p.pos.x + 60 * cos(p.ang * D2R),
+        p.pos.y + 60 * sin(p.ang * D2R), 10);
+ 
+}
+ 
+void drawFire(fire_t f) {
+ 
+    if (f.active) {
+        glColor3f(1, 1, 0);
+        circle(f.pos.x, f.pos.y, 8);
+    }
+ 
+}
+ 
+//
+// To display onto window using OpenGL commands
+//
+void display() {
+    //
+    // clear window to black
+    //
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+ 
+    if (newsun.active)
+        drawBackgroundMorning();
+ 
+    if (!newsun.active)
+        drawBackgroundNight();
+ 
+    drawAngle();
+ 
+    if (baloon.active)
+        drawBaloon();
+ 
+    if (baloon2.active)
+        drawBaloon2();
+ 
+    if (baloon3.active)
+        drawBaloon3();
+ 
+    if (newsun.active)
+        drawSun();
+ 
+    drawAllStars();
+    drawPlayer(player);
+    drawFire(fire);
+ 
+    glutSwapBuffers();
+}
+ 
+//
+// key function for ASCII charachters like ESC, a,b,c..,A,B,..Z
+//
+void onKeyDown(unsigned char key, int x, int y)
+{
+    // exit when ESC is pressed.
+    if (key == 27)
+        exit(0);
+ 
+    if (key == ' ')
+        spacebar = true;
+ 
+    // to refresh the window it calls display() function
+    glutPostRedisplay();
+}
+ 
+void onKeyUp(unsigned char key, int x, int y)
+{
+    // exit when ESC is pressed.
+    if (key == 27)
+        exit(0);
+ 
+    if (key == ' ')
+        spacebar = false;
+ 
+    // to refresh the window it calls display() function
+    glutPostRedisplay();
+}
+ 
+//
+// Special Key like GLUT_KEY_F1, F2, F3,...
+// Arrow Keys, GLUT_KEY_UP, GLUT_KEY_DOWN, GLUT_KEY_RIGHT, GLUT_KEY_RIGHT
+//
+void onSpecialKeyDown(int key, int x, int y)
+{
+    // Write your codes here.
+    switch (key) {
+    case GLUT_KEY_UP: up = true; break;
+    case GLUT_KEY_DOWN: down = true; break;
+    case GLUT_KEY_LEFT: left = true; break;
+    case GLUT_KEY_RIGHT: right = true; break;
+    }
+ 
+    if (key == GLUT_KEY_F2)
+        starRotate = !starRotate;
+ 
+    if (key == GLUT_KEY_F1)
+        motion = !motion;
+ 
+    if (key == GLUT_KEY_F1 && !newsun.active && !baloon.active && !baloon2.active && !baloon3.active)
+    {
+        newsun.active = !newsun.active;
+        baloon.active = !baloon.active;
+        baloon2.active = !baloon2.active;
+        baloon3.active = !baloon3.active;
+        count = 0;
+    }
+ 
+    // to refresh the window it calls display() function
+    glutPostRedisplay();
+}
+ 
+//
+// Special Key like GLUT_KEY_F1, F2, F3,...
+// Arrow Keys, GLUT_KEY_UP, GLUT_KEY_DOWN, GLUT_KEY_RIGHT, GLUT_KEY_RIGHT
+//
+void onSpecialKeyUp(int key, int x, int y)
+{
+    // Write your codes here.
+    switch (key) {
+    case GLUT_KEY_UP: up = false; break;
+    case GLUT_KEY_DOWN: down = false; break;
+    case GLUT_KEY_LEFT: left = false; break;
+    case GLUT_KEY_RIGHT: right = false; break;
+    }
+ 
+    // to refresh the window it calls display() function
+    glutPostRedisplay();
+}
+ 
+//
+// When a click occurs in the window,
+// It provides which button
+// buttons : GLUT_LEFT_BUTTON , GLUT_RIGHT_BUTTON
+// states  : GLUT_UP , GLUT_DOWN
+// x, y is the coordinate of the point that mouse clicked.
+//
+void onClick(int button, int stat, int x, int y)
+{
+    // Write your codes here.
+    if (button == GLUT_LEFT_BUTTON && stat == GLUT_DOWN && count < MAX && !newsun.active) {
+        stars[count].pos = { x - winWidth / 2.0 , winHeight / 2.0 - y };
+        if (stars[count].pos.y > 100)
+        {
+            stars[count].r = rand() % 2;
+            stars[count].g = rand() % 2;
+            stars[count].b = 1;
+            stars[count].radius = 20;
+            count++;
+        }
+ 
+    }
+ 
+ 
+ 
+    // to refresh the window it calls display() function
+    glutPostRedisplay();
+}
+ 
+//
+// This function is called when the window size changes.
+// w : is the new width of the window in pixels.
+// h : is the new height of the window in pixels.
+//
+void onResize(int w, int h)
+{
+    winWidth = w;
+    winHeight = h;
+    glViewport(0, 0, w, h);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(-w / 2, w / 2, -h / 2, h / 2, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    display(); // refresh window.
+}
+ 
+void onMoveDown(int x, int y) {
+    // Write your codes here.
+ 
+ 
+ 
+    // to refresh the window it calls display() function  
+   // glutPostRedisplay();
+}
+ 
+// GLUT to OpenGL coordinate conversion:
+//   x2 = x1 - winWidth / 2
+//   y2 = winHeight / 2 - y1
+void onMove(int x, int y) {
+    // Write your codes here.
+ 
+ 
+ 
+    // to refresh the window it calls display() function
+    //glutPostRedisplay();
+}
+bool testCollision(fire_t fr, target_t t) {
+    float dx = t.center.x - fr.pos.x;
+    float dy = t.center.y - fr.pos.y;
+    float d = sqrt(dx * dx + dy * dy);
+    return d <= t.radius;
+}
+ 
+ 
+#if TIMER_ON == 1
+void onTimer(int v) {
+ 
+    glutTimerFunc(TIMER_PERIOD, onTimer, 0);
+    // Write your codes here.
+ 
+   
+    if (left)
+        turnPlayer(&player, +10);
+    if (right)
+        turnPlayer(&player, -10);
+    if (up)
+        movePlayer(&player, +10);
+    if (down)
+        movePlayer(&player, -10);
+ 
+    if (spacebar && !fire.active) {
+ 
+        fire.pos = player.pos;
+        fire.ang = player.ang;
+        fire.active = true;
+ 
+    }
+ 
+    if (fire.active)
+    {
+ 
+        fire.pos.x += 30 * cos(fire.ang * D2R);
+        fire.pos.y += 30 * sin(fire.ang * D2R);
+ 
+ 
+        if (fire.pos.x > 700 || fire.pos.y > 390 || fire.pos.y < -400)
+        {
+            fire.active = false;
+        }
+ 
+        if (testCollision(fire, baloon)) {
+            fire.active = false;
+            baloon.active = false;
+        }
+ 
+        if (testCollision(fire, newsun)) {
+            fire.active = false;
+            newsun.active = false;
+        }
+ 
+ 
+        if (testCollision(fire, baloon2)) {
+            fire.active = false;
+            baloon2.active = false;
+        }
+ 
+        if (testCollision(fire, baloon3)) {
+            fire.active = false;
+            baloon3.active = false;
+        }
+ 
+    }
+ 
+    if (motion)
+    {
+        angle += 2;
+        if (angle > 360)
+            angle -= 360;
+ 
+        //Baloon: Vertical Motion
+        baloon.center.x = -300;
+        baloon.center.y = f(angle);
+        baloon.center.y += 50; //25 is added to position on the coordinate system
+ 
+        //Baloon2: Vertical Motion
+        baloon2.center.x = 0;
+        baloon2.center.y = f(angle);
+        baloon2.center.y += 120; //25 is added to position on the coordinate system
+       
+        //Baloon3: Vertical Motion
+        baloon3.center.x = 300;
+        baloon3.center.y = f(angle);
+        baloon3.center.y += 30; //25 is added to position on the coordinate system
+ 
+        if (starRotate) {
+ 
+            for (int i = 0; i < count; i++)
+                stars[i].angle += 5;
+ 
+        }
+ 
+    }
+ 
+    //Composite animation: Falling star
+    fallingStar.y = 20 * sin(6 * angle * D2R) + 250;
+    fallingStar.x = 400 * sin(angle * D2R);
+ 
+    // to refresh the window it calls display() function
+    glutPostRedisplay(); // display()
+ 
+}
+#endif
+ 
+void Init() {
+ 
+    // Smoothing shapes
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+}
+ 
+void main(int argc, char* argv[]) {
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
+    glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+    //glutInitWindowPosition(100, 100);
+    glutCreateWindow("Hitting the Targets in Cappadocia by Duygu Elif Daglaroglu");
+ 
+    glutDisplayFunc(display);
+    glutReshapeFunc(onResize);
+ 
+    //
+    // keyboard registration
+    //
+    glutKeyboardFunc(onKeyDown);
+    glutSpecialFunc(onSpecialKeyDown);
+ 
+    glutKeyboardUpFunc(onKeyUp);
+    glutSpecialUpFunc(onSpecialKeyUp);
+ 
+    //
+    // mouse registration
+    //
+    glutMouseFunc(onClick);
+    glutMotionFunc(onMoveDown);
+    glutPassiveMotionFunc(onMove);
+ 
+#if  TIMER_ON == 1
+    // timer event
+    glutTimerFunc(TIMER_PERIOD, onTimer, 0);
+#endif
+ 
+    Init();
+ 
+    glutMainLoop();
+}
+ 
+Sent from Mail for Windows 10
+ 
